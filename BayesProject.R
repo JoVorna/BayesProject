@@ -1,5 +1,7 @@
 # Script for the data analysis part // JV
 
+library(data.table)
 
+data <- fread("clinical_PANCAN_patient_with_followup.tsv")
 
-prior = rbinom(1000, 1, 0.05)
+View(data)
