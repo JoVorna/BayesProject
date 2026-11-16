@@ -12,11 +12,13 @@ grep("disease", colnames(data))
 
 lung_data <- data[grepl("luad|lusc", data$`Study ID`), ]
 
+#only lung data:
 
 names<-names(lung_data)[colMeans(is.na(lung_data)) < 0.2]
 lung_data<-subset(lung_data,select=names)
-
-
+# " The censoring variable 
+#should contain the values 'left', 'none', and 'right' (or equivalenty -1, 0, and 1)"
+lung_data$cens<-ifelse(lung_data$`Overall Survival Status`=="1:DECEASED",0,1)
 
 
                
