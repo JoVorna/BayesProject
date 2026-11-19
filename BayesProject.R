@@ -5,7 +5,7 @@ library(tidyr)
 library(brms)
 library(posterior)
 library(bayesplot)
-
+library(ggplot2)
 
 # This has all cBioPortal TCGA FireHose legacy cancer studies
 
@@ -91,6 +91,13 @@ lung_model$os_months <- lung_model$`Overall Survival (Months)`
 lung_model$Age <- lung_model$`Diagnosis Age`
 lung_model$Stage <- lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1`
 
+
+# 2 different lung cancer types: Lung adenocarcinoma (LUAD) and Lung squamous cell carcinoma (LUSC)
+
+luad_model <- subset(lung_model, lung_model$`Study ID` == "luad_tcga")
+lusc_model <- subset(lung_model, lung_model$`Study ID` == "lusc_tcga")
+
+
 # Now fitting
 
 
@@ -129,7 +136,7 @@ mcmc_trace(weibull)
 
 
 
-# Assignments 8 koodia
+# Assignment 8 code:
 
 
 formula_lognormal <- bf(
@@ -174,6 +181,18 @@ lognormal_fit <- brm(
   chains = 4,
   cores = 6
 )
+
+
+# Here you can try different data (like luad or lusc) instead of whole lung data
+# lognormal_fit <- brm(
+#   formula = formula_lognormal,
+#   prior = lognormal_fit_priors,
+#   data = luad_model,
+#   family = lognormal(),
+#   backend = "cmdstanr",
+#   chains = 4,
+#   cores = 6
+# )
 
 #library(bayesplot); library(posterior); library(brms)
 
