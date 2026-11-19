@@ -104,8 +104,15 @@ lusc_model <- subset(lung_model, lung_model$`Study ID` == "lusc_tcga")
 #?brm
 colnames(lung_model)
 
+
+# Use os_months and cens
+
+# Coefficients are then the variables (cols) such as Age, Sex, Stage, anything we want
+
+
+
 lognormal <- brm(
-  os_months | cens(cens) ~ 0 + Smoking_history + Age + Sex + Stage,
+  os_months | cens(cens) ~ 1 + Smoking_history + Age + Sex + Stage,
   data   = lung_model,
   family = lognormal(),
   prior  = prior(normal(3, 2), class = b),
@@ -118,7 +125,7 @@ mcmc_trace(lognormal)
 
 
 weibull <- brm(
-  os_months | cens(cens) ~ 0 + Smoking_history,
+  os_months | cens(cens) ~ 1 + Smoking_history,
   data   = lung_model,
   family = "weibull",
   prior  = prior(normal(3, 2), class = b),
@@ -152,23 +159,51 @@ get_prior(formula_lognormal, data = lung_model)
 
 lognormal_fit_priors <- c(
   prior(
-    normal(250, 100),
+    normal(4, 1),
     class = "b",
     coef = "Intercept"
   ),
   prior(
-    normal(0, 20),
+    normal(7, 2),
+    class = "b",
+    coef = "Smoking_historynonMsmoker"
+  ),
+  prior(
+    normal(-2, 1),
     class = "b",
     coef = "Smoking_historyrecurrentMsmoker"
   ),
   prior(
-    normal(0, 100),
+    normal(0, 2),
     class = "sigma"
   ),
   prior(
-    normal(0, 20),
+    normal(-1, 20),
     class = "b",
     coef = "StageStageII"
+  ),
+  prior(
+    normal(-4, 20),
+    class = "b",
+    coef = "StageStageIV"
+  )
+)
+
+
+# 
+
+lognormal_fit_priors <- c(
+  prior(
+    normal(4, 1),
+    class = "b",
+    coef = "Intercept"
+  ),
+  prior <- c(
+    set_prior(
+      "normal(-0.3, 1)",
+      class = "b",
+      coef = "SexMale"
+    )
   )
 )
 
@@ -179,6 +214,7 @@ lognormal_fit <- brm(
   family = lognormal(),
   backend = "cmdstanr",
   chains = 4,
+  iter = 4000,
   cores = 6
 )
 
