@@ -146,12 +146,36 @@ mcmc_trace(weibull)
 # Assignment 8 code:
 
 
-formula_lognormal <- bf(
-  os_months | cens(cens) ~ 1 + Smoking_history + Age + Stage + Sex,
-  family = "lognormal",
-  center = FALSE
+
+
+lung_model$Age_c <- (lung_model$Age - 60) / 10
+
+
+# Relevel smoking history so that the "reference" is non-smoker
+
+lung_model$Smoking_history <- factor(
+  lung_model$Smoking_history,
+  levels = c("non-smoker", "current-smoker", "recurrent-smoker")
 )
-#?bf
+
+levels(lung_model$Smoking_history)   # first one = reference
+
+colnames(lung_model)
+
+lung_model$Genome_altered <- lung_model$`Fraction Genome Altered`
+lung_model$prior_diagnosis <- lung_model$`Prior Cancer Diagnosis Occurence`
+
+
+
+# center = F / T
+formula_lognormal <- bf(
+  os_months | cens(cens) ~ 1 + Smoking_history + Age_c + Stage + Sex,
+  family = "lognormal",
+  center = TRUE
+)
+
+
+
 
 get_prior(formula_lognormal, data = lung_model)
 
@@ -160,52 +184,68 @@ get_prior(formula_lognormal, data = lung_model)
 lognormal_fit_priors <- c(
   prior(
     normal(4, 1),
-    class = "b",
-    coef = "Intercept"
+    class = "Intercept"#,
+    #coef = "Intercept"
   ),
   prior(
-    normal(7, 2),
+    normal(-0.7, 0.5),
     class = "b",
-    coef = "Smoking_historynonMsmoker"
+    coef = "Smoking_historycurrentMsmoker"
   ),
   prior(
-    normal(-2, 1),
+    normal(-0.3, 0.5),
     class = "b",
     coef = "Smoking_historyrecurrentMsmoker"
   ),
   prior(
-    normal(0, 2),
+    normal(0, 1),
     class = "sigma"
   ),
   prior(
-    normal(-1, 20),
+    normal(-0.2, 0.5),
     class = "b",
     coef = "StageStageII"
   ),
   prior(
-    normal(-4, 20),
+    normal(-0.3, 0.5),
+    class = "b",
+    coef = "StageStageIII"
+  ),
+  prior(
+    normal(-0.4, 0.5),
     class = "b",
     coef = "StageStageIV"
+  ),
+  prior(
+    normal(-0.1, 0.3),
+    class = "b",
+    coef = "Age_c"
+    ),
+  prior(
+    normal(0, 0.5),
+    class = "b",
+    coef = "SexMale")
   )
-)
+
+
 
 
 # 
 
-lognormal_fit_priors <- c(
-  prior(
-    normal(4, 1),
-    class = "b",
-    coef = "Intercept"
-  ),
-  prior <- c(
-    set_prior(
-      "normal(-0.3, 1)",
-      class = "b",
-      coef = "SexMale"
-    )
-  )
-)
+# lognormal_fit_priors <- c(
+#   prior(
+#     normal(4, 1),
+#     class = "b",
+#     coef = "Intercept"
+#   ),
+#   prior <- c(
+#     set_prior(
+#       "normal(-0.3, 1)",
+#       class = "b",
+#       coef = "SexMale"
+#     )
+#   )
+# )
 
 lognormal_fit <- brm(
   formula = formula_lognormal,
@@ -215,7 +255,7 @@ lognormal_fit <- brm(
   backend = "cmdstanr",
   chains = 4,
   iter = 4000,
-  cores = 6
+  cores = 8
 )
 
 
@@ -251,6 +291,7 @@ b_cols <- setdiff(b_cols, "b_Intercept")
 
 tr <- exp(as.matrix(draws[, b_cols]))
 colnames(tr) <- sub("^b_", "", colnames(tr))
+
 
 mcmc_intervals(tr, prob = 0.5, prob_outer = 0.95) +
   geom_vline(xintercept = 1, linetype = "dashed") +
