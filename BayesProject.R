@@ -105,35 +105,37 @@ lusc_model <- subset(lung_model, lung_model$`Study ID` == "lusc_tcga")
 colnames(lung_model)
 
 
+
+
 # Use os_months and cens
 
 # Coefficients are then the variables (cols) such as Age, Sex, Stage, anything we want
 
 
 
-lognormal <- brm(
-  os_months | cens(cens) ~ 1 + Smoking_history + Age + Sex + Stage,
-  data   = lung_model,
-  family = lognormal(),
-  prior  = prior(normal(3, 2), class = b),
-  chains = 4, cores = 4,
-  backend = "cmdstanr"
-)
+# lognormal <- brm(
+#   os_months | cens(cens) ~ 1 + Smoking_history + Age + Sex + Stage,
+#   data   = lung_model,
+#   family = lognormal(),
+#   prior  = prior(normal(3, 2), class = b),
+#   chains = 4, cores = 4,
+#   backend = "cmdstanr"
+# )
+# 
+# summary(lognormal)
+# mcmc_trace(lognormal)
+# 
+# 
+# weibull <- brm(
+#   os_months | cens(cens) ~ 1 + Smoking_history,
+#   data   = lung_model,
+#   family = "weibull",
+#   prior  = prior(normal(3, 2), class = b),
+#   chains = 4, cores = 4,
+#   backend = "cmdstanr"
+# )
 
-summary(lognormal)
-mcmc_trace(lognormal)
-
-
-weibull <- brm(
-  os_months | cens(cens) ~ 1 + Smoking_history,
-  data   = lung_model,
-  family = "weibull",
-  prior  = prior(normal(3, 2), class = b),
-  chains = 4, cores = 4,
-  backend = "cmdstanr"
-)
-
-mcmc_trace(weibull)
+#mcmc_trace(weibull)
 
 
 # Priorit betoille (coefficients) eli esimerkiksi tässä SMoking_historyssa, kuinka paljon luulemme että tupakointi status 0-2 vaikuttaa selviytytyvyyteen
@@ -148,8 +150,6 @@ mcmc_trace(weibull)
 
 
 
-lung_model$Age_c <- (lung_model$Age - 60) / 10
-
 
 # Relevel smoking history so that the "reference" is non-smoker
 
@@ -163,15 +163,19 @@ levels(lung_model$Smoking_history)   # first one = reference
 colnames(lung_model)
 
 lung_model$Genome_altered <- lung_model$`Fraction Genome Altered`
-lung_model$prior_diagnosis <- lung_model$`Prior Cancer Diagnosis Occurence`
 
+unique(lung_model$`Prior Cancer Diagnosis Occurence`)
+lung_model$prior_diagnosis <- factor(
+  ifelse(startsWith(lung_model$`Prior Cancer Diagnosis Occurence`, "Yes"), "Yes", "No"),
+  levels = c("No", "Yes")
+)
 
 
 # center = F / T
 formula_lognormal <- bf(
-  os_months | cens(cens) ~ 1 + Smoking_history + Age_c + Stage + Sex,
+  os_months | cens(cens) ~ 1 + Smoking_history + Age + Stage + Sex + prior_diagnosis + Genome_altered,
   family = "lognormal",
-  center = TRUE
+  center = FALSE
 )
 
 
@@ -181,11 +185,12 @@ get_prior(formula_lognormal, data = lung_model)
 
 
 
+# Priors
 lognormal_fit_priors <- c(
   prior(
     normal(4, 1),
-    class = "Intercept"#,
-    #coef = "Intercept"
+    class = "b",
+    coef = "Intercept"
   ),
   prior(
     normal(-0.7, 0.5),
@@ -198,7 +203,7 @@ lognormal_fit_priors <- c(
     coef = "Smoking_historyrecurrentMsmoker"
   ),
   prior(
-    normal(0, 1),
+    student_t(0, 1, 3),
     class = "sigma"
   ),
   prior(
@@ -219,33 +224,25 @@ lognormal_fit_priors <- c(
   prior(
     normal(-0.1, 0.3),
     class = "b",
-    coef = "Age_c"
+    coef = "Age"
     ),
   prior(
-    normal(0, 0.5),
+    normal(-0.2, 0.5),
     class = "b",
     coef = "SexMale")
+  ,
+prior(
+  normal(-0.5, 0.5),
+  class = "b",
+  coef = "prior_diagnosisYes")
+,
+prior(
+  normal(-0.3, 0.5),
+  class = "b",
+  coef = "Genome_altered"
   )
+)
 
-
-
-
-# 
-
-# lognormal_fit_priors <- c(
-#   prior(
-#     normal(4, 1),
-#     class = "b",
-#     coef = "Intercept"
-#   ),
-#   prior <- c(
-#     set_prior(
-#       "normal(-0.3, 1)",
-#       class = "b",
-#       coef = "SexMale"
-#     )
-#   )
-# )
 
 lognormal_fit <- brm(
   formula = formula_lognormal,
@@ -276,14 +273,33 @@ lognormal_fit <- brm(
 # Claude code 100% from now on
 # Similar visualization funcs available in assignments (USE THOSE LATER ON!)
 
-mcmc_trace(lognormal_fit, regex_pars = "^b_|sigma")
+
+# Diagnostics and some plotting
+
+summary(lognormal_fit)
+
+mcmc_trace(lognormal_fit)#, regex_pars = "^b_|sigma")
 mcmc_rank_overlay(lognormal_fit, regex_pars = "^b_|sigma")
 summarise_draws(as_draws_df(lognormal_fit)) |> dplyr::select(variable, rhat, ess_bulk)
 
 
 
+draws <- as_draws_df(lognormal_fit)
+summarise_draws(draws, Rhat=rhat_basic, ESS= ess_mean, ~ess_quantile(.x, probs = 0.25))
+mcmc_trace(lognormal_fit)
+
+# For a few parameters only
+mcmc_trace(lognormal_fit, pars=c("b_Intercept", "b_Age")) + scale_colour_manual(values=c("#000000", "#E69F00", "#56B4E9", "#009E73"))
 
 
+#mcmc_pairs(lognormal_fit)
+
+
+
+pp_check(lognormal_fit, ndraws = 100) + scale_x_log10()
+
+
+# Claude AI code:
 library("ggplot2")
 draws <- as_draws_df(lognormal_fit)
 b_cols <- grep("^b_", names(draws), value = TRUE)
@@ -298,4 +314,147 @@ mcmc_intervals(tr, prob = 0.5, prob_outer = 0.95) +
   labs(x = "Time ratio (>1 = longer survival)")
 
 mcmc_areas(tr, prob = 0.95) + geom_vline(xintercept = 1, linetype = "dashed")
+
+
+
+
+
+
+# Weibull 
+
+
+formula_weibull <- bf(
+  os_months | cens(cens) ~ 1 + Smoking_history + Age + Stage + Sex + prior_diagnosis + Genome_altered,
+  family = "weibull",
+  center = FALSE
+)
+
+get_prior(formula_weibull, data = lung_model)
+
+
+
+weibull_fit_priors <- c(
+  prior(
+    normal(4, 1),
+    class = "b",
+    coef = "Intercept"
+  ),
+  prior(
+    normal(-0.7, 0.5),
+    class = "b",
+    coef = "Smoking_historycurrentMsmoker"
+  ),
+  prior(
+    normal(-0.3, 0.5),
+    class = "b",
+    coef = "Smoking_historyrecurrentMsmoker"
+  ),
+  prior(
+    normal(-0.2, 0.5),
+    class = "b",
+    coef = "StageStageII"
+  ),
+  prior(
+    normal(-0.3, 0.5),
+    class = "b",
+    coef = "StageStageIII"
+  ),
+  prior(
+    normal(-0.4, 0.5),
+    class = "b",
+    coef = "StageStageIV"
+  ),
+  prior(
+    normal(-0.1, 0.3),
+    class = "b",
+    coef = "Age"
+  ),
+  prior(
+    normal(-0.2, 0.5),
+    class = "b",
+    coef = "SexMale")
+  ,
+  prior(
+    normal(-0.5, 0.5),
+    class = "b",
+    coef = "prior_diagnosisYes")
+  ,
+  prior(
+    normal(-0.3, 0.5),
+    class = "b",
+    coef = "Genome_altered"
+  ),
+  prior(
+    student_t(1.5, 0.25, 3),
+    class = "shape"
+  )
+)
+
+#?student_t
+
+weibull_fit <- brm(
+  formula = formula_weibull,
+  prior = weibull_fit_priors, # For the test purpose use the same priors
+  data = lung_model,
+  family = lognormal(),
+  backend = "cmdstanr",
+  chains = 4,
+  iter = 4000,
+  cores = 8
+)
+
+
+
+mcmc_trace(weibull_fit)#, regex_pars = "^b_|sigma")
+mcmc_rank_overlay(weibull_fit, regex_pars = "^b_|sigma")
+summarise_draws(as_draws_df(weibull_fit)) |> dplyr::select(variable, rhat, ess_bulk)
+
+
+
+draws <- as_draws_df(weibull_fit)
+summarise_draws(draws, Rhat=rhat_basic, ESS= ess_mean, ~ess_quantile(.x, probs = 0.25))
+mcmc_trace(weibull_fit)
+
+# For a few parameters only
+mcmc_trace(weibull_fit, pars=c("b_Intercept", "b_Age")) + scale_colour_manual(values=c("#000000", "#E69F00", "#56B4E9", "#009E73"))
+
+
+#mcmc_pairs(lognormal_fit)
+
+
+
+pp_check(weibull_fit, ndraws = 100) + scale_x_log10()
+
+
+
+
+
+#library("ggplot2")
+draws <- as_draws_df(weibull_fit)
+b_cols <- grep("^b_", names(draws), value = TRUE)
+b_cols <- setdiff(b_cols, "b_Intercept")
+
+tr <- exp(as.matrix(draws[, b_cols]))
+colnames(tr) <- sub("^b_", "", colnames(tr))
+
+
+mcmc_intervals(tr, prob = 0.5, prob_outer = 0.95) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  labs(x = "Time ratio (>1 = longer survival)")
+
+mcmc_areas(tr, prob = 0.95) + geom_vline(xintercept = 1, linetype = "dashed")
+
+
+
+
+
+
+
+
+
+# TODO miten sigma ja "shape" prior student_t nyt tarkalleen toimii, ne parametrit
+# TODO Puhdista koodia ja turhia kommentteja (voi delegoida AI:lle)
+# TODO Kunhan saadaan lyötyä asiat lukkoon niin summaryt, ESS etc. pihalle
+# TODO Lopuksi loo vs ...
+
 
