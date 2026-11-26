@@ -1,23 +1,43 @@
-# Script for the data analysis part // JV
+######################################################################
+#####################  Bayesian Data Analysis Project ################
+######################################################################
 
+
+# Set your own path for the data.
+setwd("/Users/joonasvornanen/MRD2026/MRD2026/BayesProject")
+
+
+# Load needed libraries here
 library(data.table)
 library(tidyr)
 library(brms)
 library(posterior)
 library(bayesplot)
 library(ggplot2)
+library(cmdstanr)
+library("priorsense")
 
 # This has all cBioPortal TCGA FireHose legacy cancer studies
+# We will only focus on Lung cancer
 
-# We will only focus on LUAD and LUSC: Both non-small cell lung cancer
+
+
+######################################################################
+#####################  Data loading and cleansing ####################
+######################################################################
+
+
+
 data <- fread("combined_study_clinical_data.tsv")
 
 grep("disease", colnames(data))
 
-lung_data <- data[grepl("luad|lusc", data$`Study ID`), ]
-setnames(lung_data, make.unique(names(lung_data)))  #fix duplicate columns
-#only lung data:
+# Luad and lusc are both lung cancer
 
+lung_data <- data[grepl("luad|lusc", data$`Study ID`), ]
+setnames(lung_data, make.unique(names(lung_data)))
+
+#only lung data:
 cols_to_keep<-names(lung_data)[colMeans(is.na(lung_data)) < 0.2]
 lung_data <- subset(lung_data,select=cols_to_keep)
 
@@ -25,7 +45,7 @@ lung_data <- subset(lung_data,select=cols_to_keep)
 #should contain the values 'left', 'none', and 'right' (or equivalenty -1, 0, and 1)"
 lung_data$cens<-ifelse(lung_data$`Overall Survival Status`=="1:DECEASED",0,1)
 
-#data cleaning
+#data cleaning / take only the columns we consider using later on (Not necessarily everything is used as coefficients though)
 model_cols <- c(
   "Patient ID",
   "Study ID",
@@ -41,12 +61,12 @@ model_cols <- c(
   "Year Cancer Initial Diagnosis",
   "cens" #cencoring value
 )
+
 lung_model<-subset(lung_data,select = model_cols)
 lung_model<- lung_model %>% drop_na()   #can figure out imputations but this still leaves 790 samples
 
 #remove non sensible values
 lung_model<-subset(lung_model, lung_model$`Overall Survival (Months)`!=0)
-
 
 # About the clinical file:
 
@@ -77,7 +97,7 @@ for(i in 1:nrow(lung_model)) {
 # Group these together so that letters are removed
 unique(lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1`)
 
-# regex // Claude code, works now
+# regex // Claude code for cleaning regex
 
 lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1` <-
   sub("(Stage [IV]+)[AB]$", "\\1",
@@ -92,66 +112,7 @@ lung_model$Age <- lung_model$`Diagnosis Age`
 lung_model$Stage <- lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1`
 
 
-# 2 different lung cancer types: Lung adenocarcinoma (LUAD) and Lung squamous cell carcinoma (LUSC)
-
-luad_model <- subset(lung_model, lung_model$`Study ID` == "luad_tcga")
-lusc_model <- subset(lung_model, lung_model$`Study ID` == "lusc_tcga")
-
-
-# Now fitting
-
-
-#?brm
-colnames(lung_model)
-
-
-
-
-# Use os_months and cens
-
-# Coefficients are then the variables (cols) such as Age, Sex, Stage, anything we want
-
-
-
-# lognormal <- brm(
-#   os_months | cens(cens) ~ 1 + Smoking_history + Age + Sex + Stage,
-#   data   = lung_model,
-#   family = lognormal(),
-#   prior  = prior(normal(3, 2), class = b),
-#   chains = 4, cores = 4,
-#   backend = "cmdstanr"
-# )
-# 
-# summary(lognormal)
-# mcmc_trace(lognormal)
-# 
-# 
-# weibull <- brm(
-#   os_months | cens(cens) ~ 1 + Smoking_history,
-#   data   = lung_model,
-#   family = "weibull",
-#   prior  = prior(normal(3, 2), class = b),
-#   chains = 4, cores = 4,
-#   backend = "cmdstanr"
-# )
-
-#mcmc_trace(weibull)
-
-
-# Priorit betoille (coefficients) eli esimerkiksi tässä SMoking_historyssa, kuinka paljon luulemme että tupakointi status 0-2 vaikuttaa selviytytyvyyteen
-# Siitä sitten joku jakauma
-
-
-
-
-
-# Assignment 8 code:
-
-
-
-
-
-# Relevel smoking history so that the "reference" is non-smoker
+# Relevel smoking history so that the "reference" is non-smoker for 
 
 lung_model$Smoking_history <- factor(
   lung_model$Smoking_history,
@@ -171,21 +132,42 @@ lung_model$prior_diagnosis <- factor(
 )
 
 
-# center = F / T
+# 2 different lung cancer types: Lung adenocarcinoma (LUAD) and Lung squamous cell carcinoma (LUSC)
+# Could be used in the future, but for this purpose we only stick with general lung_model
+
+
+###luad_model <- subset(lung_model, lung_model$`Study ID` == "luad_tcga")
+###lusc_model <- subset(lung_model, lung_model$`Study ID` == "lusc_tcga")
+
+
+# Now model fitting:
+
+
+# Use os_months and cens
+
+# Coefficients are then the variables (cols) such as Age, Sex, Stage, anything we want
+
+
+
+######################################################################
+#####################  Lognormal MODEL ###############################
+######################################################################
+
+
 formula_lognormal <- bf(
   os_months | cens(cens) ~ 1 + Smoking_history + Age + Stage + Sex + prior_diagnosis + Genome_altered,
   family = "lognormal",
   center = FALSE
 )
 
-
-
-
+# Look for prior names (these are weirdly named)
 get_prior(formula_lognormal, data = lung_model)
 
 
+# Set priors for coefficients
 
-# Priors
+# These are based on our own thinking and some prior knowledge about lung cancer
+
 lognormal_fit_priors <- c(
   prior(
     normal(4, 1),
@@ -203,7 +185,7 @@ lognormal_fit_priors <- c(
     coef = "Smoking_historyrecurrentMsmoker"
   ),
   prior(
-    student_t(0, 1, 3),
+    student_t(3, 1.5, 1),
     class = "sigma"
   ),
   prior(
@@ -244,6 +226,7 @@ prior(
 )
 
 
+# Fit lognormal model with brm()
 lognormal_fit <- brm(
   formula = formula_lognormal,
   prior = lognormal_fit_priors,
@@ -252,75 +235,32 @@ lognormal_fit <- brm(
   backend = "cmdstanr",
   chains = 4,
   iter = 4000,
-  cores = 8
+  cores = 4
 )
-
-
-# Here you can try different data (like luad or lusc) instead of whole lung data
-# lognormal_fit <- brm(
-#   formula = formula_lognormal,
-#   prior = lognormal_fit_priors,
-#   data = luad_model,
-#   family = lognormal(),
-#   backend = "cmdstanr",
-#   chains = 4,
-#   cores = 6
-# )
-
-#library(bayesplot); library(posterior); library(brms)
-
-
-# Claude code 100% from now on
-# Similar visualization funcs available in assignments (USE THOSE LATER ON!)
-
-
-# Diagnostics and some plotting
+# Summary of the fit model (Rhat, ESS etc.)
 
 summary(lognormal_fit)
 
-mcmc_trace(lognormal_fit)#, regex_pars = "^b_|sigma")
-mcmc_rank_overlay(lognormal_fit, regex_pars = "^b_|sigma")
-summarise_draws(as_draws_df(lognormal_fit)) |> dplyr::select(variable, rhat, ess_bulk)
+# Trace plot to see converge
 
-
-
-draws <- as_draws_df(lognormal_fit)
-summarise_draws(draws, Rhat=rhat_basic, ESS= ess_mean, ~ess_quantile(.x, probs = 0.25))
 mcmc_trace(lognormal_fit)
 
 # For a few parameters only
-mcmc_trace(lognormal_fit, pars=c("b_Intercept", "b_Age")) + scale_colour_manual(values=c("#000000", "#E69F00", "#56B4E9", "#009E73"))
 
-
-#mcmc_pairs(lognormal_fit)
-
-
+# Do the posterior predictive check, KDE and Kaplan-Meyer overlay (This KM-plot is widely used in survival analysis, the one this whole data is based on)
 
 pp_check(lognormal_fit, ndraws = 100) + scale_x_log10()
-
-
-# Claude AI code:
-library("ggplot2")
-draws <- as_draws_df(lognormal_fit)
-b_cols <- grep("^b_", names(draws), value = TRUE)
-b_cols <- setdiff(b_cols, "b_Intercept")
-
-tr <- exp(as.matrix(draws[, b_cols]))
-colnames(tr) <- sub("^b_", "", colnames(tr))
-
-
-mcmc_intervals(tr, prob = 0.5, prob_outer = 0.95) +
-  geom_vline(xintercept = 1, linetype = "dashed") +
-  labs(x = "Time ratio (>1 = longer survival)")
-
-mcmc_areas(tr, prob = 0.95) + geom_vline(xintercept = 1, linetype = "dashed")
+pp_check(lognormal_fit, type = "km_overlay", ndraws = 100)
 
 
 
 
 
+######################################################################
+#####################  Weibull MODEL #################################
+######################################################################
 
-# Weibull 
+# Same things, model formula, priors, fit:
 
 
 formula_weibull <- bf(
@@ -329,9 +269,10 @@ formula_weibull <- bf(
   center = FALSE
 )
 
-get_prior(formula_weibull, data = lung_model)
+#get_prior(formula_weibull, data = lung_model)
 
 
+# Priors for Weibull
 
 weibull_fit_priors <- c(
   prior(
@@ -385,7 +326,7 @@ weibull_fit_priors <- c(
     coef = "Genome_altered"
   ),
   prior(
-    student_t(1.5, 0.25, 3),
+    student_t(3, 1.5, 1),
     class = "shape"
   )
 )
@@ -403,58 +344,60 @@ weibull_fit <- brm(
   cores = 8
 )
 
+# Summary weibull
+
+summary(weibull_fit)
 
 
-mcmc_trace(weibull_fit)#, regex_pars = "^b_|sigma")
-mcmc_rank_overlay(weibull_fit, regex_pars = "^b_|sigma")
-summarise_draws(as_draws_df(weibull_fit)) |> dplyr::select(variable, rhat, ess_bulk)
+# Trace for convergence checking
 
-
-
-draws <- as_draws_df(weibull_fit)
-summarise_draws(draws, Rhat=rhat_basic, ESS= ess_mean, ~ess_quantile(.x, probs = 0.25))
 mcmc_trace(weibull_fit)
 
-# For a few parameters only
-mcmc_trace(weibull_fit, pars=c("b_Intercept", "b_Age")) + scale_colour_manual(values=c("#000000", "#E69F00", "#56B4E9", "#009E73"))
 
-
-#mcmc_pairs(lognormal_fit)
-
-
+# Posterior predictive check for Weibull + KM overlay, as for lognormal
 
 pp_check(weibull_fit, ndraws = 100) + scale_x_log10()
+pp_check(weibull_fit, type = "km_overlay", ndraws = 100)
+
+#?ppc_km_overlay()
+
+
+######################################################################
+#####################  Prior sensitivity analysis ####################
+######################################################################
+
+
+# Lognormal
+powerscale_plot_dens(lognormal_fit)
+
+
+# Weibull
+powerscale_plot_dens(weibull_fit)
 
 
 
+######################################################################
+#####################  Loo comparison #################################
+######################################################################
+
+# Fit loo for lognormal model
+
+loo_fit_lognormal <- add_criterion(
+  lognormal_fit,
+  criterion = "loo"
+)
+
+# Fit loo for weibull
+
+loo_fit_weibull<- add_criterion(weibull_fit,criterion = "loo")
 
 
-#library("ggplot2")
-draws <- as_draws_df(weibull_fit)
-b_cols <- grep("^b_", names(draws), value = TRUE)
-b_cols <- setdiff(b_cols, "b_Intercept")
-
-tr <- exp(as.matrix(draws[, b_cols]))
-colnames(tr) <- sub("^b_", "", colnames(tr))
+# Compare and print out the results
+loo_compare(
+  loo_fit_lognormal,
+  loo_fit_weibull
+)
 
 
-mcmc_intervals(tr, prob = 0.5, prob_outer = 0.95) +
-  geom_vline(xintercept = 1, linetype = "dashed") +
-  labs(x = "Time ratio (>1 = longer survival)")
-
-mcmc_areas(tr, prob = 0.95) + geom_vline(xintercept = 1, linetype = "dashed")
-
-
-
-
-
-
-
-
-
-# TODO miten sigma ja "shape" prior student_t nyt tarkalleen toimii, ne parametrit
-# TODO Puhdista koodia ja turhia kommentteja (voi delegoida AI:lle)
-# TODO Kunhan saadaan lyötyä asiat lukkoon niin summaryt, ESS etc. pihalle
-# TODO Lopuksi loo vs ...
-
-
+#sessionInfo()
+# End of script.
