@@ -11,11 +11,10 @@ setwd("/Users/joonasvornanen/MRD2026/MRD2026/BayesProject")
 library(data.table)
 library(tidyr)
 library(brms)
-library(posterior)
 library(bayesplot)
-library(ggplot2)
 library(cmdstanr)
 library("priorsense")
+library(ggplot2)
 
 # This has all cBioPortal TCGA FireHose legacy cancer studies
 # We will only focus on Lung cancer
@@ -38,12 +37,12 @@ lung_data <- data[grepl("luad|lusc", data$`Study ID`), ]
 setnames(lung_data, make.unique(names(lung_data)))
 
 #only lung data:
-cols_to_keep<-names(lung_data)[colMeans(is.na(lung_data)) < 0.2]
-lung_data <- subset(lung_data,select=cols_to_keep)
+cols_to_keep <- names(lung_data)[colMeans(is.na(lung_data)) < 0.2]
+lung_data <- subset(lung_data, select = cols_to_keep)
 
-# " The censoring variable 
+# " The censoring variable
 #should contain the values 'left', 'none', and 'right' (or equivalenty -1, 0, and 1)"
-lung_data$cens<-ifelse(lung_data$`Overall Survival Status`=="1:DECEASED",0,1)
+lung_data$cens <- ifelse(lung_data$`Overall Survival Status` == "1:DECEASED", 0, 1)
 
 #data cleaning / take only the columns we consider using later on (Not necessarily everything is used as coefficients though)
 model_cols <- c(
@@ -62,11 +61,12 @@ model_cols <- c(
   "cens" #cencoring value
 )
 
-lung_model<-subset(lung_data,select = model_cols)
-lung_model<- lung_model %>% drop_na()   #can figure out imputations but this still leaves 790 samples
+lung_model <- subset(lung_data, select = model_cols)
+lung_model <- lung_model %>% drop_na()   #can figure out imputations but this still leaves 790 samples
 
 #remove non sensible values
-lung_model<-subset(lung_model, lung_model$`Overall Survival (Months)`!=0)
+lung_model <- subset(lung_model, lung_model$`Overall Survival (Months)` !=
+                       0)
 
 # About the clinical file:
 
@@ -84,7 +84,7 @@ lung_model<-subset(lung_model, lung_model$`Overall Survival (Months)`!=0)
 
 lung_model$Smoking_history <- c("")
 
-for(i in 1:nrow(lung_model)) {
+for (i in 1:nrow(lung_model)) {
   if (lung_model$`Patient Smoking History Category`[i] == 1) {
     lung_model$Smoking_history[i] <- "non-smoker"
   } else if (lung_model$`Patient Smoking History Category`[i] == 2) {
@@ -100,8 +100,11 @@ unique(lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Cod
 # regex // Claude code for cleaning regex
 
 lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1` <-
-  sub("(Stage [IV]+)[AB]$", "\\1",
-      lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1`)
+  sub(
+    "(Stage [IV]+)[AB]$",
+    "\\1",
+    lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1`
+  )
 
 unique(lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1`)
 
@@ -112,7 +115,7 @@ lung_model$Age <- lung_model$`Diagnosis Age`
 lung_model$Stage <- lung_model$`Neoplasm Disease Stage American Joint Committee on Cancer Code.1`
 
 
-# Relevel smoking history so that the "reference" is non-smoker for 
+# Relevel smoking history so that the "reference" is non-smoker for
 
 lung_model$Smoking_history <- factor(
   lung_model$Smoking_history,
@@ -126,10 +129,11 @@ colnames(lung_model)
 lung_model$Genome_altered <- lung_model$`Fraction Genome Altered`
 
 unique(lung_model$`Prior Cancer Diagnosis Occurence`)
-lung_model$prior_diagnosis <- factor(
-  ifelse(startsWith(lung_model$`Prior Cancer Diagnosis Occurence`, "Yes"), "Yes", "No"),
-  levels = c("No", "Yes")
-)
+lung_model$prior_diagnosis <- factor(ifelse(
+  startsWith(lung_model$`Prior Cancer Diagnosis Occurence`, "Yes"),
+  "Yes",
+  "No"
+), levels = c("No", "Yes"))
 
 
 # 2 different lung cancer types: Lung adenocarcinoma (LUAD) and Lung squamous cell carcinoma (LUSC)
@@ -155,7 +159,8 @@ lung_model$prior_diagnosis <- factor(
 
 
 formula_lognormal <- bf(
-  os_months | cens(cens) ~ 1 + Smoking_history + Age + Stage + Sex + prior_diagnosis + Genome_altered,
+  os_months |
+    cens(cens) ~ 1 + Smoking_history + Age + Stage + Sex + prior_diagnosis + Genome_altered,
   family = "lognormal",
   center = FALSE
 )
@@ -169,60 +174,19 @@ get_prior(formula_lognormal, data = lung_model)
 # These are based on our own thinking and some prior knowledge about lung cancer
 
 lognormal_fit_priors <- c(
-  prior(
-    normal(4, 1),
-    class = "b",
-    coef = "Intercept"
-  ),
-  prior(
-    normal(-0.7, 0.5),
-    class = "b",
-    coef = "Smoking_historycurrentMsmoker"
-  ),
-  prior(
-    normal(-0.3, 0.5),
-    class = "b",
-    coef = "Smoking_historyrecurrentMsmoker"
-  ),
-  prior(
-    student_t(3, 1.5, 1),
-    class = "sigma"
-  ),
-  prior(
-    normal(-0.2, 0.5),
-    class = "b",
-    coef = "StageStageII"
-  ),
-  prior(
-    normal(-0.3, 0.5),
-    class = "b",
-    coef = "StageStageIII"
-  ),
-  prior(
-    normal(-0.4, 0.5),
-    class = "b",
-    coef = "StageStageIV"
-  ),
-  prior(
-    normal(-0.1, 0.3),
-    class = "b",
-    coef = "Age"
-    ),
-  prior(
-    normal(-0.2, 0.5),
-    class = "b",
-    coef = "SexMale")
+  prior(normal(4, 1), class = "b", coef = "Intercept"),
+  prior(normal(-0.7, 0.5), class = "b", coef = "Smoking_historycurrentMsmoker"),
+  prior(normal(-0.3, 0.5), class = "b", coef = "Smoking_historyrecurrentMsmoker"),
+  prior(student_t(3, 1.5, 1), class = "sigma"),
+  prior(normal(-0.2, 0.5), class = "b", coef = "StageStageII"),
+  prior(normal(-0.3, 0.5), class = "b", coef = "StageStageIII"),
+  prior(normal(-0.4, 0.5), class = "b", coef = "StageStageIV"),
+  prior(normal(-0.1, 0.3), class = "b", coef = "Age"),
+  prior(normal(-0.2, 0.5), class = "b", coef = "SexMale")
   ,
-prior(
-  normal(-0.5, 0.5),
-  class = "b",
-  coef = "prior_diagnosisYes")
-,
-prior(
-  normal(-0.3, 0.5),
-  class = "b",
-  coef = "Genome_altered"
-  )
+  prior(normal(-0.5, 0.5), class = "b", coef = "prior_diagnosisYes")
+  ,
+  prior(normal(-0.3, 0.5), class = "b", coef = "Genome_altered")
 )
 
 
@@ -243,8 +207,18 @@ summary(lognormal_fit)
 
 # Trace plot to see converge
 
-mcmc_trace(lognormal_fit)
-
+slopes <- c(
+  "b_Smoking_historycurrentMsmoker",
+  "b_Smoking_historyrecurrentMsmoker",
+  "b_Age",
+  "b_StageStageII",
+  "b_StageStageIII",
+  "b_StageStageIV",
+  "b_SexMale",
+  "b_prior_diagnosisYes",
+  "b_Genome_altered"
+)
+mcmc_areas(lognormal_fit, pars = slopes)
 # For a few parameters only
 
 # Do the posterior predictive check, KDE and Kaplan-Meyer overlay (This KM-plot is widely used in survival analysis, the one this whole data is based on)
@@ -264,7 +238,8 @@ pp_check(lognormal_fit, type = "km_overlay", ndraws = 100)
 
 
 formula_weibull <- bf(
-  os_months | cens(cens) ~ 1 + Smoking_history + Age + Stage + Sex + prior_diagnosis + Genome_altered,
+  os_months |
+    cens(cens) ~ 1 + Smoking_history + Age + Stage + Sex + prior_diagnosis + Genome_altered,
   family = "weibull",
   center = FALSE
 )
@@ -275,69 +250,29 @@ formula_weibull <- bf(
 # Priors for Weibull
 
 weibull_fit_priors <- c(
-  prior(
-    normal(4, 1),
-    class = "b",
-    coef = "Intercept"
-  ),
-  prior(
-    normal(-0.7, 0.5),
-    class = "b",
-    coef = "Smoking_historycurrentMsmoker"
-  ),
-  prior(
-    normal(-0.3, 0.5),
-    class = "b",
-    coef = "Smoking_historyrecurrentMsmoker"
-  ),
-  prior(
-    normal(-0.2, 0.5),
-    class = "b",
-    coef = "StageStageII"
-  ),
-  prior(
-    normal(-0.3, 0.5),
-    class = "b",
-    coef = "StageStageIII"
-  ),
-  prior(
-    normal(-0.4, 0.5),
-    class = "b",
-    coef = "StageStageIV"
-  ),
-  prior(
-    normal(-0.1, 0.3),
-    class = "b",
-    coef = "Age"
-  ),
-  prior(
-    normal(-0.2, 0.5),
-    class = "b",
-    coef = "SexMale")
+  prior(normal(4, 1), class = "b", coef = "Intercept"),
+  prior(normal(-0.7, 0.5), class = "b", coef = "Smoking_historycurrentMsmoker"),
+  prior(normal(-0.3, 0.5), class = "b", coef = "Smoking_historyrecurrentMsmoker"),
+  prior(normal(-0.2, 0.5), class = "b", coef = "StageStageII"),
+  prior(normal(-0.3, 0.5), class = "b", coef = "StageStageIII"),
+  prior(normal(-0.4, 0.5), class = "b", coef = "StageStageIV"),
+  prior(normal(-0.1, 0.3), class = "b", coef = "Age"),
+  prior(normal(-0.2, 0.5), class = "b", coef = "SexMale")
   ,
-  prior(
-    normal(-0.5, 0.5),
-    class = "b",
-    coef = "prior_diagnosisYes")
+  prior(normal(-0.5, 0.5), class = "b", coef = "prior_diagnosisYes")
   ,
-  prior(
-    normal(-0.3, 0.5),
-    class = "b",
-    coef = "Genome_altered"
-  ),
-  prior(
-    student_t(3, 1.5, 1),
-    class = "shape"
-  )
+  prior(normal(-0.3, 0.5), class = "b", coef = "Genome_altered"),
+  prior(student_t(3, 1.5, 1), class = "shape")
 )
 
 #?student_t
 
 weibull_fit <- brm(
   formula = formula_weibull,
-  prior = weibull_fit_priors, # For the test purpose use the same priors
+  prior = weibull_fit_priors,
+  # For the test purpose use the same priors
   data = lung_model,
-  family = lognormal(),
+  family = "weibull",
   backend = "cmdstanr",
   chains = 4,
   iter = 4000,
@@ -382,21 +317,15 @@ powerscale_plot_dens(weibull_fit)
 
 # Fit loo for lognormal model
 
-loo_fit_lognormal <- add_criterion(
-  lognormal_fit,
-  criterion = "loo"
-)
+loo_fit_lognormal <- add_criterion(lognormal_fit, criterion = "loo")
 
 # Fit loo for weibull
 
-loo_fit_weibull<- add_criterion(weibull_fit,criterion = "loo")
+loo_fit_weibull <- add_criterion(weibull_fit, criterion = "loo")
 
 
 # Compare and print out the results
-loo_compare(
-  loo_fit_lognormal,
-  loo_fit_weibull
-)
+loo_compare(loo_fit_lognormal, loo_fit_weibull)
 
 
 #sessionInfo()
